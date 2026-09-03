@@ -1,0 +1,51 @@
+{
+  "name": "roxy-desktop-pet",
+  "version": "0.1.0",
+  "description": "洛琪希（Roxy）桌面宠物 —— 透明置顶悬浮窗小宠物，支持任务看板、自定义台词、表情上传与多种桌面行为",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check main.js && node --check preload.cjs && node --check lib/server.js && node --check client/roxy-widget.js",
+    "smoke": "node scripts/smoke-server.mjs",
+    "dist": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.roxy.desktop.pet",
+    "productName": "Roxy Desktop Pet",
+    "artifactName": "Roxy-Desktop-Pet-Setup-${version}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.cjs",
+      "index.html",
+      "lib/**/*",
+      "client/**/*",
+      "assets/**/*",
+      "ico/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "ico/favicon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}
