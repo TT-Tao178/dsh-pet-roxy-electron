@@ -146,6 +146,10 @@
     '.rx-dialog[open]{display:flex;flex-direction:column;overflow:hidden}',
     '.rx-dialog .rx-panel{overflow-y:auto;flex:1}',
     '.rx-dialog::backdrop{background:rgba(2,6,23,.35)}',
+    // UI 独立窗口模式：面板直接铺满窗口，去掉“网页弹框”观感
+    '.rx-ui-body{background:#fffdf7}',
+    '.rx-ui-body .rx-dialog{position:fixed;left:0;top:0;width:100vw;height:100vh;max-width:100vw;max-height:100vh;margin:0;border:none;border-radius:0;box-shadow:none}',
+    '.rx-ui-body .rx-dialog::backdrop{background:transparent}',
     '.rx-dialog-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid rgba(32,49,112,.12);position:sticky;top:0;background:#fffdf7;z-index:2}',
     '.rx-dialog-head h3{margin:0;font-size:16px;font-weight:800}',
     '.rx-dialog-close{border:none;background:rgba(32,49,112,.08);border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:14px;color:#203170}',
@@ -285,6 +289,21 @@
       }
     } else if (p.type === 'reload-config') {
       loadConfig().then(applyAllPrefs)
+    } else if (p.type === 'scale') {
+      // 设置窗口拖动“大小”滑条：实时调整宠物窗口尺寸（save=true 时落盘）
+      prefs.scale = clamp(Number(p.value), 0.6, 2.5)
+      applyWindowSize()
+      if (p.save) persistPrefsQuick()
+    } else if (p.type === 'anim') {
+      // “表情动画”开关实时生效
+      prefs.animationOn = !!p.value
+      applyBehaviorPrefs()
+      if (p.save) persistPrefsQuick()
+    } else if (p.type === 'mirror') {
+      // “水平镜像”开关实时生效
+      prefs.mirror = !!p.value
+      applyMirror()
+      if (p.save) persistPrefsQuick()
     }
   }
 
@@ -333,7 +352,8 @@
     document.head.appendChild(styleEl)
 
     if (UI_MODE) {
-      // UI 窗口：只建 toast，其余交给设置/统计面板
+      // UI 窗口：没有宠物本体（root=null），面板铺满窗口；只建 toast，其余交给设置/统计面板
+      document.body.classList.add('rx-ui-body')
       toastEl = document.createElement('div')
       toastEl.className = 'rx-toast'
       document.body.appendChild(toastEl)
@@ -527,6 +547,8 @@
     var base = currentBase()
     var w = Math.round(base)
     var h = Math.round(base * 1.6)
+    // UI 设置窗口没有宠物本体（root=null）：窗口尺寸由宠物窗口按 scale 指令自行调整
+    if (!root) return { w, h }
     root.style.setProperty('--rx-base', base + 'px')
     if (desktop && uiOpenCount === 0) desktop.resizeKeepBottom(w, h)
     else if (!desktop) {
@@ -558,6 +580,7 @@
   }
 
   function applyMirror() {
+    if (!root) return // UI 窗口无宠物本体，由宠物窗口应用
     root.classList.toggle('rx-mirror', !!(state.prefs && state.prefs.mirror))
   }
 
@@ -930,7 +953,7 @@
     var p = state.prefs || FALLBACK.prefs
     var bh = state.behavior || FALLBACK.behavior
     return (
-      '<div class="rx-row"><label>大小</label><input type="range" class="rx-range" id="rx-scale-range" min="0.6" max="2.5" step="0.1" value="' + (Number(p.scale) || 1) + '"><input type="number" class="rx-number" id="rx-scale-num" min="1" max="20" value="' + (Math.round(((Number(p.scale) || 1) - 0.6) / 0.1) + 1) + '"></div>' +
+      '<div class="rx-row"><label>大小</label><input type="range" class="rx-range" id="rx-scale-range" min="0.6" max="2.5" step="0.1" value="' + (Number(p.scale) || 1) + '"><input type="number" class="rx-number" id="rx-scale-num" min="60" max="250" step="5" title="尺寸（百分比）" value="' + Math.round((Number(p.scale) || 1) * 100) + '"><span style="font-size:11px;color:#94a3b8">%</span></div>' +
       '<div class="rx-row"><label>表情动画</label><input type="checkbox" class="rx-check" id="rx-beh-anim" ' + (p.animationOn === false ? '' : 'checked') + '></div>' +
       '<div class="rx-row"><label>水平镜像</label><input type="checkbox" class="rx-check" id="rx-beh-mirror" ' + (p.mirror ? 'checked' : '') + '><span style="font-size:11px;color:#94a3b8">左右翻转角色朝向</span></div>' +
       '<div class="rx-row"><label>犯困频率</label><select class="rx-number" style="width:auto" id="rx-beh-sleepy">' +
@@ -1003,16 +1026,26 @@
     } else {
       var range = body.querySelector('#rx-scale-range')
       var num = body.querySelector('#rx-scale-num')
-      var apply = function () {
-        state.prefs.scale = clamp(Number(range.value), 0.6, 2.5)
-        num.value = Math.round((state.prefs.scale - 0.6) / 0.1) + 1
-        root.style.setProperty('--rx-scale', String(state.prefs.scale))
-        applyWindowSize()
+      var applyScale = function (persist) {
+        var v = clamp(Number(range.value), 0.6, 2.5)
+        if (!(v > 0)) v = 1
+        state.prefs.scale = v
+        if (num) num.value = String(Math.round(v * 100))
+        if (UI_MODE) {
+          // 独立设置窗口：把尺寸指令发给宠物窗口实时缩放；松手/回车时才让宠物落盘
+          if (desktop && desktop.sendRun) desktop.sendRun({ type: 'scale', value: v, save: !!persist })
+        } else {
+          if (root) root.style.setProperty('--rx-scale', String(v))
+          applyWindowSize()
+        }
       }
-      range.addEventListener('input', apply)
+      range.addEventListener('input', function () { applyScale(false) })
+      range.addEventListener('change', function () { applyScale(true) })
       num.addEventListener('change', function () {
-        range.value = String(clamp(0.6 + (Number(num.value) - 1) * 0.1, 0.6, 2.5))
-        apply()
+        var v = clamp(Number(num.value) / 100, 0.6, 2.5)
+        v = Math.round(v * 20) / 20
+        range.value = String(v)
+        applyScale(true)
       })
       // 透明度：拖动即实时生效（原生 setOpacity，不闪烁）；松手时同步托盘
       var op = body.querySelector('#rx-beh-opacity')
@@ -1042,6 +1075,31 @@
           }
         })
       }
+      // 表情动画 / 水平镜像 / 置顶方式 / 开机自启：改动即实时生效（设置窗 → 宠物窗指令；保存按钮负责统一落盘）
+      var behAnim = body.querySelector('#rx-beh-anim')
+      if (behAnim) behAnim.addEventListener('change', function () {
+        state.prefs.animationOn = this.checked
+        if (UI_MODE) { if (desktop && desktop.sendRun) desktop.sendRun({ type: 'anim', value: this.checked, save: true }) }
+        else applyBehaviorPrefs()
+      })
+      var behMirror = body.querySelector('#rx-beh-mirror')
+      if (behMirror) behMirror.addEventListener('change', function () {
+        state.prefs.mirror = this.checked
+        if (UI_MODE) { if (desktop && desktop.sendRun) desktop.sendRun({ type: 'mirror', value: this.checked, save: true }) }
+        else applyMirror()
+      })
+      var behTop = body.querySelector('#rx-beh-top')
+      if (behTop) behTop.addEventListener('change', function () {
+        state.prefs.topMode = this.value
+        if (UI_MODE) { if (desktop && desktop.sendRun) desktop.sendRun({ type: 'top-mode', value: this.value }) }
+        else applyTopMode()
+      })
+      var behAuto = body.querySelector('#rx-beh-auto')
+      if (behAuto) behAuto.addEventListener('change', function () {
+        state.prefs.autostart = this.checked
+        if (UI_MODE) { if (desktop && desktop.sendRun) desktop.sendRun({ type: 'autostart', value: this.checked }) }
+        else if (desktop && desktop.setAutostart) desktop.setAutostart(this.checked)
+      })
       body.querySelector('#rx-save-behavior').addEventListener('click', saveBehaviorTab)
     }
   }
@@ -1095,6 +1153,7 @@
 
   function applyBehaviorPrefs() {
     var p = state.prefs || {}
+    if (!root) return // UI 窗口无宠物本体（root=null），由宠物窗口收到指令后应用
     root.classList.toggle('rx-anim', p.animationOn !== false && !reducedMotion)
     applyMirror()
     if (p.animationOn === false || reducedMotion) {
