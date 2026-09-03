@@ -138,9 +138,6 @@
     '.rx-amount{font-size:calc(var(--rx-u) * 128);font-weight:800;line-height:1.05}',
     '.rx-hint{font-size:calc(var(--rx-u) * 56);color:#9fb0d9;letter-spacing:.02em;margin-top:calc(var(--rx-u) * 9);line-height:1.15}',
     '.rx-wrap{white-space:normal;max-width:calc(var(--rx-u) * 560);line-height:1.2}',
-    '.rx-menu-btn{position:absolute;top:4px;right:4px;width:26px;height:26px;border:none;border-radius:6px;background:rgba(32,49,112,.85);cursor:pointer;pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:0;z-index:3;opacity:0;transition:opacity .15s ease}',
-    '.rx-root:hover .rx-menu-btn,.rx-root:focus-within .rx-menu-btn,.rx-menu-btn:focus-visible{opacity:1}',
-    '.rx-menu-btn span{display:block;width:14px;height:2px;background:#fff;border-radius:1px}',
     '.rx-menu{position:fixed;min-width:168px;background:rgba(255,255,255,.96);border:1px solid rgba(32,49,112,.35);border-radius:10px;padding:6px;opacity:0;transform:scale(.94) translateY(-4px);transform-origin:top right;transition:opacity .15s ease,transform .18s cubic-bezier(.34,1.56,.64,1);pointer-events:none;z-index:10000;box-shadow:0 6px 18px rgba(0,0,0,.18);color-scheme:light}',
     '.rx-menu.rx-menu-open{opacity:1;transform:scale(1) translateY(0);pointer-events:auto}',
     '.rx-menu-item{display:flex;align-items:center;gap:8px;width:100%;border:none;background:transparent;padding:8px 10px;border-radius:6px;font-size:13px;color:#203170;cursor:pointer;text-align:left}',
@@ -214,7 +211,6 @@
   var imgEl = null
   var bubbleEl = null
   var textEl = null
-  var menuBtn = null
   var contextMenu = null
   var toastEl = null
   var desktop = window.petDesktop || null // Electron 桥；纯浏览器打开时为 null
@@ -375,19 +371,6 @@
     textEl = document.createElement('div')
     textEl.className = 'rx-text'
     bubbleEl.appendChild(textEl)
-
-    menuBtn = document.createElement('button')
-    menuBtn.type = 'button'
-    menuBtn.className = 'rx-menu-btn'
-    menuBtn.title = '菜单'
-    menuBtn.setAttribute('aria-label', '打开菜单')
-    menuBtn.innerHTML = '<span></span><span></span><span></span>'
-    menuBtn.addEventListener('click', function (e) {
-      e.stopPropagation()
-      var r = bodyEl.getBoundingClientRect()
-      openContextMenu(r.right - 4, r.top + 30)
-    })
-    root.appendChild(menuBtn)
 
     document.body.appendChild(root)
 
