@@ -1,6 +1,6 @@
 {
   "name": "roxy-desktop-pet",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "洛琪希（Roxy）桌面宠物 —— 透明置顶悬浮窗小宠物，支持任务看板、自定义台词、表情上传与多种桌面行为",
   "main": "main.js",
   "type": "module",
