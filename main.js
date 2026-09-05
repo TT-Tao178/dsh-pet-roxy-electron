@@ -38,6 +38,20 @@ process.on('unhandledRejection', (reason) => {
   logCrash('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)))
 })
 
+// 每次启动记录环境信息（版本/可执行路径/是否打包/数据目录），crash.log 开头的这几行
+// 就是远程排障的“现场还原”：能直接看出对方是否装在中文目录、数据目录在哪
+function logStartupInfo() {
+  try {
+    const line =
+      '[' + new Date().toISOString() + '] app v' + app.getVersion() + ' started\n' +
+      '  exe       = ' + process.execPath + '\n' +
+      '  packaged  = ' + app.isPackaged + '\n' +
+      '  appDir    = ' + __dirname + '\n' +
+      '  ROXY_HOME = ' + (process.env.ROXY_HOME || '(default ~/.roxy-desktop-pet)') + '\n\n'
+    fs.appendFileSync(crashLogPath(), line)
+  } catch (err) { /* ignore */ }
+}
+
 let mainWindow = null // 宠物窗口
 let uiWindow = null // 设置/统计窗口
 let server = null
@@ -290,13 +304,14 @@ ipcMain.on('pet-set-top-mode', (event, mode) => {
   mainWindow.setVisibleOnAllWorkspaces(always, { visibleOnFullScreen: true })
 })
 
-// 开机自启
+// 开机自启（打包版只注册 exe 本身，不写 args —— 避免安装目录含中文/空格时注册表命令出问题；dev 才带项目路径）
 ipcMain.on('pet-set-autostart', (event, enabled) => {
-  app.setLoginItemSettings({
-    openAtLogin: !!enabled,
-    path: process.execPath,
-    args: [__dirname],
-  })
+  const opts = { openAtLogin: !!enabled }
+  if (!app.isPackaged) {
+    opts.path = process.execPath
+    opts.args = [__dirname]
+  }
+  app.setLoginItemSettings(opts)
 })
 ipcMain.handle('pet-get-autostart', () => {
   return app.getLoginItemSettings().openAtLogin
@@ -347,11 +362,14 @@ ipcMain.on('pet-quit', () => {
 // 生命周期
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
+  logStartupInfo()
   await createWindow()
   createTray()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+  // 自检测试模式：ROXY_SELFTEST=1 时真实跑一遍设置流程（用于验证中文目录等环境）
+  if (process.env.ROXY_SELFTEST === '1') runSelfTest()
 })
 
 app.on('window-all-closed', () => {
@@ -361,3 +379,71 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   if (tray) { tray.destroy(); tray = null }
 })
+
+// ---------------------------------------------------------------------------
+// 自检测试（ROXY_SELFTEST=1）：真实 IPC + 设置页操作 + 截图，结果写 selftest.log
+// 用于验证“中文目录安装/中文数据目录”等环境下核心链路是否正常
+// ---------------------------------------------------------------------------
+async function runSelfTest() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  const base = process.env.ROXY_HOME || path.join(os.homedir(), '.roxy-desktop-pet')
+  const logFile = path.join(base, 'selftest.log')
+  const stLog = (msg) => {
+    try {
+      fs.mkdirSync(base, { recursive: true })
+      fs.appendFileSync(logFile, '[' + new Date().toISOString() + '] ' + msg + '\n')
+    } catch (err) { /* ignore */ }
+  }
+  const shot = async (wc, file) => {
+    try {
+      const img = await wc.capturePage()
+      fs.mkdirSync(path.dirname(file), { recursive: true })
+      fs.writeFileSync(file, img.toPNG())
+      stLog('screenshot: ' + file)
+    } catch (err) { stLog('screenshot fail: ' + String(err)) }
+  }
+  stLog('self-test start; appDir=' + __dirname + '; exe=' + process.execPath)
+  try {
+    await sleep(2500)
+    // 1) 宠物窗经 preload 真实 IPC：缩放指令
+    await mainWindow.webContents.executeJavaScript("window.petDesktop.sendRun({ type: 'scale', value: 1.5, save: false }); 'ok'")
+    await sleep(800)
+    stLog('pet size after scale1.5 = ' + mainWindow.getSize().join('x'))
+    // 2) 打开设置窗口
+    openUiWindow('settings')
+    await sleep(3500)
+    if (!uiWindow || uiWindow.isDestroyed()) { stLog('ERROR: uiWindow not opened'); return }
+    // 3) 行为页：切 tab → 拖大小到 2.0 → 关动画 → 开镜像 → 保存
+    const step1 = await uiWindow.webContents.executeJavaScript(`(function () {
+      var tab = Array.prototype.find.call(document.querySelectorAll('.rx-tab'), function (b) { return b.getAttribute('data-tab') === 'behavior' })
+      if (tab) tab.click()
+      return String(document.querySelectorAll('.rx-tab').length)
+    })()`)
+    stLog('ui tabs = ' + step1)
+    await sleep(500)
+    const step2 = await uiWindow.webContents.executeJavaScript(`(function () {
+      var out = []
+      var range = document.querySelector('#rx-scale-range')
+      if (range) { range.value = '2.0'; range.dispatchEvent(new Event('input', { bubbles: true })); range.dispatchEvent(new Event('change', { bubbles: true })); out.push('scale2') }
+      var anim = document.querySelector('#rx-beh-anim')
+      if (anim && anim.checked) { anim.checked = false; anim.dispatchEvent(new Event('change', { bubbles: true })); out.push('animOff') }
+      var mir = document.querySelector('#rx-beh-mirror')
+      if (mir && !mir.checked) { mir.checked = true; mir.dispatchEvent(new Event('change', { bubbles: true })); out.push('mirrorOn') }
+      var save = document.querySelector('#rx-save-behavior')
+      if (save) { save.click(); out.push('saved') }
+      return out.join(',') || 'no-op'
+    })()`)
+    stLog('ui actions = ' + step2)
+    await sleep(1800)
+    stLog('pet size after save = ' + mainWindow.getSize().join('x'))
+    await shot(uiWindow.webContents, path.join(base, 'selftest', 'settings.png'))
+    await shot(mainWindow.webContents, path.join(base, 'selftest', 'pet.png'))
+    // 4) 回读服务端配置，确认保存落盘（中文数据目录下）
+    const res = await fetch('http://127.0.0.1:' + server.port + '/prefs')
+    const cfg = await res.json()
+    stLog('server prefs => scale=' + cfg.prefs.scale + ' animationOn=' + cfg.prefs.animationOn + ' mirror=' + cfg.prefs.mirror)
+    stLog('self-test DONE')
+  } catch (err) {
+    stLog('self-test ERROR: ' + ((err && err.stack) || String(err)))
+  }
+}
