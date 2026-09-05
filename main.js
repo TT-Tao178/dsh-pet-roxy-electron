@@ -6,13 +6,37 @@
 // 设置与统计面板：在独立的居中窗口中打开（不再遮挡宠物本体）。
 // 用户数据默认 $HOME/.roxy-desktop-pet/（可用 ROXY_HOME 覆盖）。
 // ============================================================================
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, Tray } from 'electron'
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startServer, readWindowState, writeWindowState } from './lib/server.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ICO_PATH = path.join(__dirname, 'ico', 'favicon.ico')
+
+// ---- 崩溃/异常日志：写入用户数据目录 crash.log（远程排障：让对端把这个文件发回来即可）----
+function crashLogPath() {
+  const base = process.env.ROXY_HOME || path.join(os.homedir(), '.roxy-desktop-pet')
+  try { fs.mkdirSync(base, { recursive: true }) } catch (err) { /* ignore */ }
+  return path.join(base, 'crash.log')
+}
+function logCrash(context, err) {
+  try {
+    const line = '[' + new Date().toISOString() + '] ' + context + '\n' + ((err && err.stack) || String(err)) + '\n\n'
+    fs.appendFileSync(crashLogPath(), line)
+    console.error(line)
+  } catch (e) { /* ignore */ }
+}
+// 主进程异常不再裸奔：先落盘完整堆栈，再弹提示（应用继续运行）
+process.on('uncaughtException', (err) => {
+  logCrash('uncaughtException', err)
+  try { dialog.showErrorBox('Roxy 出错了', (err && err.stack) || String(err)) } catch (e) { /* ignore */ }
+})
+process.on('unhandledRejection', (reason) => {
+  logCrash('unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)))
+})
 
 let mainWindow = null // 宠物窗口
 let uiWindow = null // 设置/统计窗口
@@ -27,11 +51,18 @@ let trayState = { topMode: 'always', opacity: 1, mouseThrough: false, autostart:
 const DEFAULT_W = 300
 const DEFAULT_H = 480
 
+function safeSend(wc, payload) {
+  try {
+    if (wc && !wc.isDestroyed()) wc.send('pet-run', payload)
+  } catch (err) {
+    logCrash('webContents.send(pet-run) 失败（载荷可能不可序列化）', err)
+  }
+}
 function sendToPet(payload) {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-run', payload)
+  safeSend(mainWindow && mainWindow.webContents, payload)
 }
 function sendToUi(payload) {
-  if (uiWindow && !uiWindow.isDestroyed()) uiWindow.webContents.send('pet-run', payload)
+  safeSend(uiWindow && uiWindow.webContents, payload)
 }
 function broadcastRun(sender, payload) {
   if (mainWindow && sender !== mainWindow.webContents) sendToPet(payload)
@@ -290,8 +321,9 @@ ipcMain.on('pet-open-ui', (event, kind) => {
   openUiWindow(kind)
 })
 
-// 页面之间/托盘 -> 页面 的通用指令（广播给除发送者外的窗口）
+// 页面之间/托盘 -> 页面 的通用指令（广播给除发送者外的窗口）；只接受纯对象载荷
 ipcMain.on('pet-run', (event, payload) => {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return
   broadcastRun(event.sender, payload)
 })
 
