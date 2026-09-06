@@ -125,9 +125,7 @@
     '.rx-img{position:absolute;left:0;bottom:0;width:100%;height:var(--rx-base);object-fit:contain;object-position:center bottom;display:block;pointer-events:none;-webkit-user-drag:none;user-select:none;transform-origin:50% 100%}',
     '.rx-root.rx-anim .rx-img{animation:rx-breathe var(--rx-breathe,2.4s) ease-in-out infinite}',
     '@keyframes rx-breathe{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.03)}}',
-    '.rx-root.rx-mirror .rx-img{transform:scaleX(-1)}',
-    '.rx-root.rx-mirror.rx-anim .rx-img{animation-name:rx-breathe-mirror}',
-    '@keyframes rx-breathe-mirror{0%,100%{transform:scaleX(-1) scaleY(1)}50%{transform:scaleX(-1) scaleY(1.03)}}',
+    // 镜像：root 整体 scaleX(-1) 翻转角色与气泡一次即可；图片不能再翻（二次翻转=抵消，曾致“镜像没用”）
     '.rx-bubble{position:absolute;left:0;top:0;width:86%;aspect-ratio:1026/700;pointer-events:none;z-index:1;opacity:0;transition:opacity .2s ease;--rx-u:calc(var(--rx-base) / 1026)}',
     '.rx-bubble.rx-bubble-open{opacity:1}',
     '.rx-bubble svg{display:block;width:100%;height:100%;pointer-events:none}',
